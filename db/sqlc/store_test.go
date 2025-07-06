@@ -11,10 +11,12 @@ import (
 // DEADLOCK: concurrent transfer requests
 // if it have some process transfer request:
 // process 1 and process 2 both INSERT a transfer request (from_account_id, to_account_id)
-// 1 -> create entry 1 to take money out of account, create entry 2 to add money for receiving account, similar of 2
-// 1 > get account to update balance, but postgres suspect query can update ID
-// (from_account_id -> update ID in accounts table) due to FOREIGN KEY constrains
+// 1 -> create entry 1 to take money out of an account, create entry 2 to add money for receiving account, similar of 2
+
+// 1 > SELECT account to update balance, but postgres assumes the query might UPDATE the primary key
+// (due to foreign-key constraints on from_account_id)
 // => so it needs to acquire a lock to prevent conflicts and ensure the consistency of the data
+
 // SOLUTION: notice to postgres that the query won't update the primary key (ID) -> add FOR NO KEY UPDATE (line 16 of account.sql)
 func TestTransferTx(t *testing.T) {
 	store := NewStore(testDB)
