@@ -2,16 +2,26 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+// DEADLOCK: concurrent transfer requests
+// if it have some process transfer request:
+// process 1 and process 2 both INSERT a transfer request (from_account_id, to_account_id)
+// 1 -> create entry 1 to take money out of account, create entry 2 to add money for receiving account, similar of 2
+// 1 > get account to update balance, but postgres suspect query can update ID
+// (from_account_id -> update ID in accounts table) due to FOREIGN KEY constrains
+// => so it needs to acquire a lock to prevent conflicts and ensure the consistency of the data
+// SOLUTION: notice to postgres that the query won't update the primary key (ID) -> add FOR NO KEY UPDATE (line 16 of account.sql)
 func TestTransferTx(t *testing.T) {
 	store := NewStore(testDB)
 
 	account1 := createRandomAccount(t)
 	account2 := createRandomAccount(t)
+	fmt.Println(">> Before:", account1.Balance, account2.Balance)
 
 	//run n concurrent transfer transactions
 	n := 5
@@ -20,7 +30,8 @@ func TestTransferTx(t *testing.T) {
 	results := make(chan TransferTxResult)
 	for i := 0; i < n; i++ {
 		go func() {
-			result, err := store.TransferTx(context.Background(), TransferTxParams{
+			ctx := context.Background()
+			result, err := store.TransferTx(ctx, TransferTxParams{
 				FromAccountID: account1.ID,
 				ToAccountID: account2.ID,
 				Amount: amount,
@@ -80,7 +91,7 @@ func TestTransferTx(t *testing.T) {
 
 		toAccount := result.ToAccount
 		require.NotEmpty(t, toAccount)
-		require.Equal(t, account2, toAccount.ID)
+		require.Equal(t, account2.ID, toAccount.ID)
 		//check account's balance
 		diff1 := account1.Balance - fromAccount.Balance
 		diff2 := toAccount.Balance - account2.Balance
@@ -92,6 +103,8 @@ func TestTransferTx(t *testing.T) {
 		require.True(t, k >= 1 && k <= n)
 		require.NotContains(t, existed, k)
 		existed[k] = true
+		fmt.Println(">> Tx:", account1.Balance, account2.Balance)
+
 	}
 	//check the final update balance
 	updateAccount1, err := testQueries.GetAccount(context.Background(), account1.ID)
@@ -100,6 +113,7 @@ func TestTransferTx(t *testing.T) {
 	updateAccount2, err := testQueries.GetAccount(context.Background(), account2.ID)
 	require.NoError(t, err)
 
+	fmt.Println(">> After:", account1.Balance, account2.Balance)
 	require.Equal(t, account1.Balance-int64(n)*amount, updateAccount1.Balance)
 	require.Equal(t, account2.Balance+int64(n)*amount, updateAccount2.Balance)
 }
