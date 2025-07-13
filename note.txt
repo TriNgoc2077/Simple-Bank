@@ -1,4 +1,4 @@
 clone repo: chmod +x load-env.sh
-load env: $Env:DB_USER = "in.env"
-$Env:DB_PASSWORD = "in.env"
+load env: $Env:POSTGRES_USER = "in.env"
+$Env:POSTGRES_PASSWORD = "in.env"
 -> make migrateup
